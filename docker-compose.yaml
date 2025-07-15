@@ -1,4 +1,33 @@
 services:
+  redis:
+    image: redis
+    restart: unless-stopped
+    container_name: redis_container
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+
+  dramatiq:
+    build: .
+    container_name: dramatiq_container
+    restart: unless-stopped
+    command: [ "dramatiq", "utils.release_account" ]
+    depends_on:
+      - redis
+    environment:
+      REDIS_URL: redis://redis:6379
+
+  bot:
+    build: .
+    container_name: telegram_bot
+    restart: unless-stopped
+    depends_on:
+      - redis
+    environment:
+      REDIS_URL: redis://redis:6379
+    command: [ "python", "bot/main.py" ]
+
   web:
     build: .
     ports:
@@ -27,3 +56,4 @@ services:
 
 volumes:
   pgdata:
+  redisdata:

@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Optional, List
 
+from sqlalchemy import Column, BigInteger
 from sqlmodel import Field, SQLModel, Relationship
 
 
@@ -27,7 +28,7 @@ class PaymentStatus(str, Enum):
 
 # ---------- MODELS ----------
 class User(SQLModel, table=True):
-    id: int = Field(primary_key=True)
+    id: int = Field(sa_column=Column(BigInteger(), primary_key=True))
     username: str
     balance: float = Field(default=0.0)
     rents: Optional[List["Rent"]] = Relationship(back_populates="user", cascade_delete=True)
@@ -38,26 +39,29 @@ class SteamAccount(SQLModel, table=True):
     login: str
     password: str
     game_name: str
+    in_use: bool = Field(default=False)
     status: SteamAccountStatus = Field(default=SteamAccountStatus.active)
-    rent: Optional["Rent"] = Relationship(back_populates="steam_account", cascade_delete=True)
+    # Надо написать логику что пока есть активные аренды новые создавать нельзя
+    rent: List["Rent"] | None = Relationship(back_populates="steam_account", cascade_delete=True)
 
 
 class Rent(SQLModel, table=True):
     id: int = Field(primary_key=True)
-    user_id: int = Field(foreign_key="user.id")
-    steam_account_id: int = Field(foreign_key="steamaccount.id")
+    user_id: int | None = Field(foreign_key="user.id", sa_type=BigInteger)
+    steam_account_id: int | None = Field(foreign_key="steamaccount.id")
 
     use_start_datetime: datetime
     use_end_datetime: datetime
     status: RentStatus = Field(default=RentStatus.active)
 
-    user: User = Relationship(back_populates="rents")
-    steam_account: SteamAccount = Relationship(back_populates="rent")
+    user: User | None = Relationship(back_populates="rents")
+    steam_account: SteamAccount | None = Relationship(back_populates="rent")
 
 
 class Payment(SQLModel, table=True):
     id: int = Field(primary_key=True)
-    user_id: int = Field(foreign_key="user.id")
+    user_id: int = Field(foreign_key="user.id", sa_type=BigInteger)
+    steam_account_id: int = Field(foreign_key="steamaccount.id")
     sum: float
     status: PaymentStatus = Field(default=PaymentStatus.pending)
 
@@ -94,7 +98,8 @@ class SteamAccountRead(SQLModel):
     login: str
     game_name: str
     status: SteamAccountStatus
-    rent: Rent | None = None
+    in_use: bool
+    rent: List[Rent] | None = None
 
 
 class SteamAccountUpdate(SQLModel):
@@ -102,14 +107,15 @@ class SteamAccountUpdate(SQLModel):
     password: Optional[str] = None
     game_name: Optional[str] = None
     status: Optional[SteamAccountStatus] = None
+    in_use: Optional[bool] = None
 
 
 # RENT
 class RentCreate(SQLModel):
     user_id: int
     steam_account_id: int
-    use_start_datetime: datetime | None = datetime.today()
-    use_end_datetime: datetime | None = datetime.today() + timedelta(1)
+    use_start_datetime: datetime | None = None
+    use_end_datetime: datetime
     status: RentStatus = RentStatus.active
 
 
@@ -120,6 +126,7 @@ class RentRead(SQLModel):
     use_start_datetime: datetime
     use_end_datetime: datetime
     status: RentStatus
+    steam_account: SteamAccount
 
 
 class RentUpdate(SQLModel):
@@ -133,6 +140,7 @@ class RentUpdate(SQLModel):
 # PAYMENT
 class PaymentCreate(SQLModel):
     user_id: int
+    steam_account_id: int
     sum: float
     status: PaymentStatus = PaymentStatus.pending
 
@@ -140,11 +148,13 @@ class PaymentCreate(SQLModel):
 class PaymentRead(SQLModel):
     id: int
     user_id: int
+    steam_account_id: int
     sum: float
     status: PaymentStatus
 
 
 class PaymentUpdate(SQLModel):
     user_id: Optional[int] = None
+    steam_account_id: Optional[int] = None
     sum: Optional[float] = None
     status: Optional[PaymentStatus] = None

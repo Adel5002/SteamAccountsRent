@@ -1,18 +1,37 @@
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
+from sqlalchemy.orm import selectinload
+from sqlmodel import SQLModel, Session, select
+from sqlalchemy import text, Sequence
 
+from api.seed import seed_data
 from database.crud import create_user, add_new_steam_account, new_rent_create, delete_user, update_user, \
     update_steam_account, delete_steam_account, update_rent, delete_rent, get_all_users, get_user, \
-    get_all_steam_accounts, get_steam_account, get_all_rents, get_rent
-from database.engine import create_db_and_tables, SessionDep
+    get_all_steam_accounts, get_steam_account, get_all_rents, get_rent, create_payment, update_payment, delete_payment, \
+    get_payment, get_all_payments, get_all_accounts_by_game_name
+from database.engine import create_db_and_tables, SessionDep, engine, get_session
 from database.models import UserRead, UserCreate, User, SteamAccountCreate, SteamAccountRead, SteamAccount, RentRead, \
-    RentCreate, Rent, RentUpdate, SteamAccountUpdate, UserUpdate
+    RentCreate, Rent, RentUpdate, SteamAccountUpdate, UserUpdate, PaymentRead, PaymentCreate, Payment, PaymentUpdate
 
+
+def reset_db(engine):
+    with engine.connect() as connection:
+        # Отключаем ограничения внешних ключей
+        connection.execute(text("DROP SCHEMA public CASCADE;"))
+        connection.execute(text("CREATE SCHEMA public;"))
+        connection.commit()
+    SQLModel.metadata.create_all(engine)
+
+def run():
+    reset_db(engine)
+    with Session(engine) as session:
+        seed_data(session)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> None:
     create_db_and_tables()
+    run()
     yield
 
 app = FastAPI(lifespan=lifespan)
@@ -67,6 +86,24 @@ async def read_all_accounts(session: SessionDep):
 async def read_account(account_id: int, session: SessionDep):
     return get_steam_account(account_id, session)
 
+@app.get('/get_accounts_by_game_name/{game}', response_model=list[SteamAccountRead])
+async def get_accounts_by_game_name(game: str, session: SessionDep) -> Sequence[SteamAccount]:
+    accounts = get_all_accounts_by_game_name(game, session)
+
+    return accounts
+
+@app.get('/get-all-games/')
+async def get_all_games(session: SessionDep) -> list:
+    get_all_account = session.scalars(
+        select(SteamAccount)
+        .where(SteamAccount.in_use == False)
+        .where(SteamAccount.status == 'active')
+    ).all()
+
+    games = {game.game_name for game in get_all_account}
+
+    return list(games)
+
 
 # --- RENT ---
 
@@ -91,3 +128,73 @@ async def read_all_rents(session: SessionDep):
 @app.get('/rents/{rent_id}', response_model=RentRead)
 async def read_rent(rent_id: int, session: SessionDep):
     return get_rent(rent_id, session)
+
+@app.get('/user-rents/{user_id}', response_model=list[RentRead])
+async def get_user_rents(user_id: int, session: SessionDep, status: str = 'active'):
+    user_exists = session.get(User, user_id)
+
+    if not user_exists:
+        raise HTTPException(status_code=404, detail='User does not exists')
+
+    if status in ('active', 'ended'):
+        user_rents = session.scalars(
+            select(Rent)
+            .where(Rent.user_id == user_id)
+            .where(Rent.status == status)
+        ).all()
+        return user_rents
+    elif status == 'all':
+        user_rents = session.scalars(
+            select(Rent)
+            .where(Rent.user_id == user_id)
+        ).all()
+        return user_rents
+
+@app.get('/is-rent-available-for-extend/{user_id}/')
+async def is_available_rent_for_extend(user_id: int, session: SessionDep):
+    user_rents = session.scalars(
+        select(Rent)
+        .where(Rent.user_id == user_id)
+    ).all()
+
+    rent_availability = []
+
+    for rent in user_rents:
+        rent_data = rent.dict()
+        if rent.status == 'active' or rent.steam_account.in_use != True:
+            rent_data['available'] = True
+        else:
+            rent_data['available'] = False
+        rent_data['steam_account'] = rent.steam_account.dict()
+        rent_availability.append(rent_data)
+
+
+    return rent_availability
+
+@app.get('/drop-db/')
+async def drop_db() -> dict:
+    reset_db(engine)
+    return {'status': 'success'}
+
+# --- PAYMENT ---
+
+@app.post("/create-payment/", response_model=PaymentRead)
+async def create_payment_endpoint(payment: PaymentCreate, session: SessionDep) -> Payment:
+    return create_payment(payment, session)
+
+@app.patch("/update-payment/{payment_id}", response_model=PaymentRead)
+async def update_payment_endpoint(payment_id: int, payment: PaymentUpdate, session: SessionDep) -> Payment:
+    return update_payment(payment_id, payment, session)
+
+@app.delete("/payment/{payment_id}")
+async def delete_payment_endpoint(payment_id: int, session: SessionDep) -> dict:
+    delete_payment(payment_id, session)
+    return {'detail': 'Payment deleted successfully'}
+
+@app.get("/payments/{payment_id}", response_model=PaymentRead)
+async def get_payment_endpoint(payment_id: int, session: SessionDep) -> Payment:
+    return get_payment(payment_id, session)
+
+@app.get("/payments/", response_model=list[PaymentRead])
+async def get_all_payments_endpoint(session: SessionDep) -> Sequence[Payment]:
+    return get_all_payments(session)

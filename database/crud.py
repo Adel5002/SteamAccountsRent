@@ -1,11 +1,11 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import HTTPException
 from sqlalchemy import Sequence
 
 from sqlmodel import Session, select
 
 from database.models import UserCreate, User, SteamAccountCreate, SteamAccount, RentCreate, Rent, RentUpdate, \
-    SteamAccountUpdate, UserUpdate
+    SteamAccountUpdate, UserUpdate, PaymentCreate, Payment, PaymentUpdate
 
 
 # --- USER ---
@@ -111,30 +111,56 @@ def get_all_steam_accounts(session: Session) -> Sequence[SteamAccount]:
     return session.scalars(select(SteamAccount)).all()
 
 
+def get_all_accounts_by_game_name(game: str, session: Session) -> Sequence[SteamAccount]:
+    accounts = session.scalars(
+        select(SteamAccount)
+        .where(SteamAccount.game_name == game)
+        .where(SteamAccount.in_use == False)
+        .where(SteamAccount.status == 'active')
+    ).all()
+
+    if not accounts:
+        raise HTTPException(status_code=404, detail='Game does not exists')
+
+    return accounts
+
 # --- RENT ---
 
 def new_rent_create(rent: RentCreate, session: Session) -> Rent:
+    account_has_active_rent = session.scalars(
+        select(Rent)
+        .where(Rent.steam_account_id == rent.steam_account_id)
+        .where(Rent.status == 'active')
+    ).all()
+
     rent_exists = session.scalar(
         select(Rent)
         .where(Rent.user_id == rent.user_id)
         .where(Rent.steam_account_id == rent.steam_account_id)
+        .where(Rent.status == 'active')
     )
 
     user_exists = session.get(User, rent.user_id)
 
     steam_account_exists = session.get(SteamAccount, rent.steam_account_id)
 
-    if rent_exists:
+    if account_has_active_rent:
+        raise HTTPException(
+            status_code=409,
+            detail='Account already have active rent. You cannot rent account with already active rent'
+        )
+    elif rent_exists:
         raise HTTPException(status_code=409, detail='You cannot rent the same account twice')
     elif not user_exists:
         raise HTTPException(status_code=404, detail='User does not exists')
     elif not steam_account_exists:
         raise HTTPException(status_code=404, detail='Specified steam account does not exists')
 
+
     new_rent = Rent(
         user_id=rent.user_id,
         steam_account_id=rent.steam_account_id,
-        use_start_datetime=datetime.today(),
+        use_start_datetime=datetime.now(timezone.utc),
         use_end_datetime=rent.use_end_datetime
     )
 
@@ -142,21 +168,30 @@ def new_rent_create(rent: RentCreate, session: Session) -> Rent:
     session.commit()
     session.refresh(new_rent)
 
+    steam_acc_update = SteamAccountUpdate(
+        in_use=True,
+    )
+
+    update_steam_account(rent.steam_account_id, steam_acc_update, session)
+
     return new_rent
 
 def update_rent(rent_id: int, rent_data: RentUpdate, session: Session) -> Rent:
     db_rent = session.get(Rent, rent_id)
 
-    user_exists = session.get(User, rent_data.user_id)
+    if rent_data.user_id and rent_data.steam_account_id:
+        user_exists = session.get(User, rent_data.user_id)
 
-    steam_account_exists = session.get(SteamAccount, rent_data.steam_account_id)
+        steam_account_exists = session.get(SteamAccount, rent_data.steam_account_id)
+
+        if not user_exists:
+            raise HTTPException(status_code=404, detail='User does not exists')
+        elif not steam_account_exists:
+            raise HTTPException(status_code=404, detail='Specified steam account does not exists')
 
     if not db_rent:
         raise HTTPException(status_code=404, detail="Rent not found")
-    elif not user_exists:
-        raise HTTPException(status_code=404, detail='User does not exists')
-    elif not steam_account_exists:
-        raise HTTPException(status_code=404, detail='Specified steam account does not exists')
+
 
     rent_data_update = rent_data.model_dump(exclude_unset=True)
     db_rent.sqlmodel_update(rent_data_update)
@@ -183,3 +218,63 @@ def get_rent(rent_id: int, session: Session) -> Rent:
 
 def get_all_rents(session: Session) -> Sequence[Rent]:
     return session.scalars(select(Rent)).all()
+
+
+# --- PAYMENT ---
+
+def create_payment(payment: PaymentCreate, session: Session) -> Payment:
+    user_exists = session.get(User, payment.user_id)
+    steam_account = session.get(SteamAccount, payment.steam_account_id)
+
+    if not user_exists:
+        raise HTTPException(status_code=404, detail='User does not exists')
+    elif not steam_account:
+        raise HTTPException(status_code=404, detail='Provided account id does not exists')
+
+    new_payment = Payment(
+        user_id=payment.user_id,
+        steam_account_id=payment.steam_account_id,
+        sum=payment.sum
+    )
+
+    session.add(new_payment)
+    session.commit()
+    session.refresh(new_payment)
+
+    return new_payment
+
+def update_payment(payment_id: int, payment: PaymentUpdate, session: Session) -> Payment:
+    get_payment = session.get(Payment, payment_id)
+
+    if not get_payment:
+        raise HTTPException(status_code=404, detail='Payment does not exists')
+
+    payment_data = payment.model_dump(exclude_unset=True)
+    get_payment.sqlmodel_update(payment_data)
+
+    session.add(get_payment)
+    session.commit()
+    session.refresh(get_payment)
+
+    return get_payment
+
+def delete_payment(payment_id: int, session: Session) -> None:
+    get_payment = session.get(Payment, payment_id)
+
+    if not get_payment:
+        raise HTTPException(status_code=404, detail='Provided payment id not found')
+
+    session.delete(payment_id)
+    session.commit()
+
+def get_payment(payment_id: int, session: Session) -> Payment:
+    payment = session.get(Payment, payment_id)
+    if not payment:
+        raise HTTPException(status_code=404, detail='Provided payment id not found')
+
+    return payment
+
+
+def get_all_payments(session: Session) -> Sequence[Payment]:
+    payments = session.scalars(select(Payment)).all()
+    return payments
