@@ -146,13 +146,15 @@ async def check_payment(message: Message, state: FSMContext) -> None:
                 raise Exception(f"Ошибка аренды: {rent_create.text}")
 
             rent = rent_create.json()
+            steam_account_login = rent['steam_account']['login']
+            steam_account_password = rent['steam_account']['password']
 
             # запускаем таймер — здесь оставлена заглушка на 2 минуты
             release_account.send_with_options(args=(steam_account_id, rent['id']), delay=120 * 1000)
 
             await message.answer(
                 f'🎉 Ваша аренда готова!\n\n'
-                f'👤 Логин: \n🔒 Пароль: \n'
+                f'👤 Логин: {steam_account_login}\n🔒 Пароль: {steam_account_password}\n'
                 f'⏳ Время аренды: {num_of_rent_days} дней'
             )
         except Exception as e:

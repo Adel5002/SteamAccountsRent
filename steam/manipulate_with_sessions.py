@@ -4,7 +4,6 @@ import json
 import time
 from playwright.sync_api import sync_playwright
 
-# COOKIES_FILE = "steam_cookies.json"
 STEAM_LOGIN_URL = "https://store.steampowered.com/login/"
 STEAM_GUARD_URL = "https://store.steampowered.com/account/authorizeddevices"
 

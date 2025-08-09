@@ -5,7 +5,8 @@ from sqlalchemy import Sequence
 from sqlmodel import Session, select
 
 from database.models import UserCreate, User, SteamAccountCreate, SteamAccount, RentCreate, Rent, RentUpdate, \
-    SteamAccountUpdate, UserUpdate, PaymentCreate, Payment, PaymentUpdate
+    SteamAccountUpdate, UserUpdate, PaymentCreate, Payment, PaymentUpdate, SteamAccountEmailAddressCreate, \
+    SteamAccountEmailAddress, SteamAccountEmailAddressUpdate
 
 
 # --- USER ---
@@ -59,6 +60,51 @@ def get_all_users(session: Session) -> Sequence[User]:
 
 # --- STEAM ACCOUNT ---
 
+def add_steam_account_email_address(account: SteamAccountEmailAddressCreate, session: Session) -> SteamAccountEmailAddress:
+    new_account = SteamAccountEmailAddress(
+        email=account.email,
+        password=account.password
+    )
+
+    session.add(new_account)
+    session.commit()
+    session.refresh(new_account)
+
+    return new_account
+
+def update_steam_account_email_address(
+        account_id: int,
+        account: SteamAccountEmailAddressUpdate,
+        session: Session
+) -> SteamAccountEmailAddress:
+    get_account = session.get(SteamAccountEmailAddress, account_id)
+
+    if not get_account:
+        raise HTTPException(status_code=404, detail='Account does not exists...')
+
+    account_data_update = account.model_dump(exclude_unset=True)
+    get_account.sqlmodel_update(account_data_update)
+
+    session.add(get_account)
+    session.commit()
+    session.refresh(get_account)
+
+    return get_account
+
+
+def delete_steam_account_email_address(
+        account_id: int,
+        session: Session
+) -> SteamAccountEmailAddress:
+    get_account = session.get(SteamAccountEmailAddress, account_id)
+
+    if not get_account:
+        raise HTTPException(status_code=404, detail='Account does not exists...')
+
+    session.delete(get_account)
+    session.commit()
+
+
 def add_new_steam_account(account: SteamAccountCreate, session: Session) -> SteamAccount:
     account_exists = session.scalar(
         select(SteamAccount)
@@ -72,7 +118,8 @@ def add_new_steam_account(account: SteamAccountCreate, session: Session) -> Stea
     add_account = SteamAccount(
         login=account.login,
         password=account.password,
-        game_name=account.game_name
+        game_name=account.game_name,
+        steam_account_email_address_id=account.steam_account_email_address_id
     )
 
     session.add(add_account)
@@ -198,6 +245,9 @@ def update_rent(rent_id: int, rent_data: RentUpdate, session: Session) -> Rent:
     session.add(db_rent)
     session.commit()
     session.refresh(db_rent)
+
+    if rent_data.status == "active":
+        update_steam_account(db_rent.steam_account_id, SteamAccountUpdate(in_use=True), session)
 
     return db_rent
 

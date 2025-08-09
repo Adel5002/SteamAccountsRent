@@ -12,6 +12,7 @@ class SteamAccountStatus(str, Enum):
     active = 'active'
     in_use = 'in_use'
     banned = 'banned'
+    preparation = 'preparation'
 
 
 class RentStatus(str, Enum):
@@ -34,15 +35,34 @@ class User(SQLModel, table=True):
     rents: Optional[List["Rent"]] = Relationship(back_populates="user", cascade_delete=True)
 
 
+class SteamAccountEmailAddress(SQLModel, table=True):
+    id: int = Field(primary_key=True)
+    email: str
+    password: str
+
+    steam_account: 'SteamAccount' = Relationship(back_populates='steam_account_email_address')
+
+
 class SteamAccount(SQLModel, table=True):
     id: int = Field(primary_key=True)
     login: str
     password: str
     game_name: str
     in_use: bool = Field(default=False)
-    status: SteamAccountStatus = Field(default=SteamAccountStatus.active)
+    status: SteamAccountStatus = Field(default=SteamAccountStatus.preparation)
     # Надо написать логику что пока есть активные аренды новые создавать нельзя
     rent: List["Rent"] | None = Relationship(back_populates="steam_account", cascade_delete=True)
+
+    steam_account_email_address_id: int = Field(foreign_key='steamaccountemailaddress.id')
+    steam_account_email_address: SteamAccountEmailAddress = Relationship(
+        back_populates='steam_account',
+        sa_relationship_kwargs={
+            "cascade": "all, delete-orphan",
+            "single_parent": True,
+            "uselist": False,
+        }
+    )
+
 
 
 class Rent(SQLModel, table=True):
@@ -86,11 +106,25 @@ class UserUpdate(SQLModel):
 
 
 # STEAM ACCOUNT
+class SteamAccountEmailAddressCreate(SQLModel):
+    email: str
+    password: str
+
+class SteamAccountEmailAddressRead(SQLModel):
+    id: int
+    email: str
+    password: str
+
+class SteamAccountEmailAddressUpdate(SQLModel):
+    email: str
+    password: str
+
 class SteamAccountCreate(SQLModel):
     login: str
     password: str
     game_name: str
-    status: SteamAccountStatus = SteamAccountStatus.active
+    steam_account_email_address_id: int
+    status: SteamAccountStatus = SteamAccountStatus.preparation
 
 
 class SteamAccountRead(SQLModel):
@@ -98,6 +132,8 @@ class SteamAccountRead(SQLModel):
     login: str
     game_name: str
     status: SteamAccountStatus
+    steam_account_email_address_id: int
+    steam_account_email_address: SteamAccountEmailAddressRead
     in_use: bool
     rent: List[Rent] | None = None
 

@@ -1,7 +1,8 @@
 from datetime import datetime, timedelta
 import random
-from database.models import User, SteamAccount, Rent
 from sqlalchemy.orm import Session
+from database.models import User, SteamAccount, SteamAccountEmailAddress, SteamAccountStatus
+
 
 def seed_data(session: Session):
     # Users
@@ -9,29 +10,28 @@ def seed_data(session: Session):
     session.add_all(users)
     session.commit()
 
-    # Steam accounts
+    # Game names
     game_names = ["Dota 2", "CS:GO", "GTA V", "Elden Ring", "Minecraft"]
 
-    accounts = [
-        SteamAccount(
+    accounts = []
+
+    for i in range(1, 16):
+        # Создаём email-аккаунт
+        email = SteamAccountEmailAddress(
+            email=f"steam_email_{i}@example.com",
+            password="emailpass"
+        )
+
+        # Создаём стим-аккаунт и сразу связываем
+        account = SteamAccount(
             login=f"acc{i}",
             password="pass",
-            game_name=random.choice(game_names)  # случайная игра
+            game_name=random.choice(game_names),
+            status=SteamAccountStatus.preparation,
+            steam_account_email_address=email  # ← привязываем объект, не id
         )
-        for i in range(1, 16)
-    ]
+
+        accounts.append(account)
+
     session.add_all(accounts)
     session.commit()
-
-    # Rents (привязка user ↔ account)
-    # rents = [
-    #     Rent(
-    #         user_id=users[i % len(users)].id,
-    #         steam_account_id=accounts[i % len(accounts)].id,
-    #         use_start_datetime=datetime.utcnow(),
-    #         use_end_datetime=datetime.utcnow() + timedelta(days=7)
-    #     )
-    #     for i in range(5)
-    # ]
-    # session.add_all(rents)
-    # session.commit()

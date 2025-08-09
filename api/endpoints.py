@@ -9,10 +9,13 @@ from api.seed import seed_data
 from database.crud import create_user, add_new_steam_account, new_rent_create, delete_user, update_user, \
     update_steam_account, delete_steam_account, update_rent, delete_rent, get_all_users, get_user, \
     get_all_steam_accounts, get_steam_account, get_all_rents, get_rent, create_payment, update_payment, delete_payment, \
-    get_payment, get_all_payments, get_all_accounts_by_game_name
+    get_payment, get_all_payments, get_all_accounts_by_game_name, add_steam_account_email_address, \
+    update_steam_account_email_address
 from database.engine import create_db_and_tables, SessionDep, engine, get_session
 from database.models import UserRead, UserCreate, User, SteamAccountCreate, SteamAccountRead, SteamAccount, RentRead, \
-    RentCreate, Rent, RentUpdate, SteamAccountUpdate, UserUpdate, PaymentRead, PaymentCreate, Payment, PaymentUpdate
+    RentCreate, Rent, RentUpdate, SteamAccountUpdate, UserUpdate, PaymentRead, PaymentCreate, Payment, PaymentUpdate, \
+    SteamAccountEmailAddressRead, SteamAccountEmailAddressCreate, SteamAccountEmailAddress, \
+    SteamAccountEmailAddressUpdate
 
 
 def reset_db(engine):
@@ -31,7 +34,7 @@ def run():
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> None:
     create_db_and_tables()
-    run()
+    # run()
     yield
 
 app = FastAPI(lifespan=lifespan)
@@ -63,6 +66,23 @@ async def read_user(user_id: int, session: SessionDep):
 
 
 # --- STEAM ACCOUNT ---
+
+@app.post('/add-steam-account-email-address/', response_model=SteamAccountEmailAddressRead)
+async def add_steam_acc_email_add(
+        account: SteamAccountEmailAddressCreate,
+        session: SessionDep
+) -> SteamAccountEmailAddress:
+    email = add_steam_account_email_address(account, session)
+    return email
+
+@app.patch('/update-steam-account-email-address/{account_id}', response_model=SteamAccountEmailAddressRead)
+async def update_steam_acc_email_add(
+        account_id: int,
+        account: SteamAccountEmailAddressUpdate,
+        session: SessionDep
+) -> SteamAccountEmailAddress:
+    update_email = update_steam_account_email_address(account_id, account, session)
+    return update_email
 
 @app.post('/add-new-account/', response_model=SteamAccountRead)
 async def add_new_account_endpoint(account: SteamAccountCreate, session: SessionDep) -> SteamAccount:
